@@ -1,14 +1,12 @@
 const axios = require("axios");
-const fs = require("fs");
 const htmlparser2 = require("htmlparser2");
+const fs = require("fs");
 
 const url = "https://sitetwo.netlify.app/";
-// const url = "https://whatithinkofher.netlify.app/";
 
 axios.get(url).then((response) => {
-  const dir = `./site`;
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.mkdirSync(dir);
+  fs.rmSync("./site", { recursive: true, force: true });
+  fs.mkdirSync("./site");
 
   let document = "";
 
@@ -25,24 +23,61 @@ axios.get(url).then((response) => {
       });
 
       atts.forEach((attribute, i) => {
-        if (attribute.includes("/") || attribute.includes(".")) {
-          const sourcePath = attribute.split("=")[1].slice(1, -1);
+        // This ensure its a tag with a link to a file
+        if (attribute.includes(".")) {
+          let sourcePath = attribute.split("=")[1].slice(1, -1); // .slice removes quotes around
+
+          if (sourcePath.startsWith("/")) {
+            sourcePath = sourcePath.substring(1); // remove starting "/" if it exists
+          }
+
           const sourceURL =
             (sourcePath.includes("http") ? "" : url) +
-            sourcePath.replace(/\.\//, "");
-          const baseName = sourceURL.split("/").pop().split(".")[0];
-          const urlString = sourceURL.split("/")[2].split(".").join("-");
+            sourcePath.replace(/\.\//, ""); // generate a url to valid file
+
           const fileExtension = sourceURL.split(".").pop();
-          const fileName = baseName + "-" + urlString + "." + fileExtension;
 
-          console.log(sourcePath, fileName);
+          const fileName =
+            sourceURL.split("/").pop().split(".")[0] + // base name of the original file
+            "-" +
+            sourceURL.split("/")[2].split(".").join("-") + // url domain seperated by "-"
+            "." +
+            fileExtension;
 
-          axios.get(sourceURL).then(({ data }) => {
-            // Make this root files
-            // Make this downlaod images
-            fs.writeFileSync(`${dir}/${fileName}`, data);
-          });
-          atts[i] = `${attribute.split("=")[0]}=${fileName}`;
+          const pathname = new URL(sourceURL).pathname.split("/");
+          pathname.pop();
+          pathname.shift();
+          pathname.push("");
+
+          const dir =
+            "./site/" +
+            pathname.join("/").substring(0, pathname.join("/").length + 6);
+
+          if (
+            fileExtension === "jpg" ||
+            fileExtension === "png" ||
+            fileExtension === "jpeg"
+          ) {
+            axios({
+              method: "get",
+              url: sourceURL,
+              responseType: "stream",
+            }).then((response) => {
+              fs.mkdirSync(dir, { recursive: true });
+              response.data.pipe(
+                fs.createWriteStream("./site/" + pathname.join("/") + fileName)
+              );
+            });
+          } else {
+            axios.get(sourceURL).then(({ data }) => {
+              fs.mkdirSync(dir, { recursive: true });
+              fs.writeFileSync("./site/" + pathname.join("/") + fileName, data);
+            });
+          }
+
+          atts[i] = `${attribute.split("=")[0]}="${
+            pathname.join("/") + fileName
+          }"`;
         }
       });
 
@@ -61,5 +96,5 @@ axios.get(url).then((response) => {
   });
   parser.write(response.data);
   parser.end();
-  fs.writeFileSync(dir + "/index.html", document);
+  fs.writeFileSync("./site/index.html", document);
 });
